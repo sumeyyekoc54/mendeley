@@ -12,7 +12,7 @@ import numpy as np
 from .analysis import ImageAnalysis, analyze_image
 from .enhance import enhance_lighting
 from .io_exif import load_image, output_path_for, save_image
-from .looks import LookProfile, apply_look
+from .looks import LookDebugMetrics, LookProfile, apply_look
 from .quality import QualityReport, check_quality
 
 
@@ -54,6 +54,7 @@ class EnhanceResult:
     applied: dict[str, float]
     meta: dict[str, Any]
     lit_bgr: np.ndarray | None = None  # Doğal aydınlatma çıktısı (look öncesi)
+    look_metrics: LookDebugMetrics | None = None
 
 
 def resolve_strengths(
@@ -107,17 +108,19 @@ def process_bgr(
     )
     assert lit.shape == bgr.shape
 
-    enhanced = apply_look(
+    enhanced, look_metrics = apply_look(
         lit,
         settings.look,
         settings.look_strength,
         analysis=analysis,
         source_bgr=bgr,
+        return_metrics=True,
     )
     assert enhanced.shape == bgr.shape
 
     applied = dict(strengths)
     applied["look_strength"] = float(settings.look_strength)
+    applied["look_mean_abs_delta"] = float(look_metrics.mean_abs_delta_vs_lit)
     quality = check_quality(bgr, enhanced)
     return EnhanceResult(
         original_bgr=bgr,
@@ -128,6 +131,7 @@ def process_bgr(
         applied=applied,
         meta=meta or {},
         lit_bgr=lit,
+        look_metrics=look_metrics,
     )
 
 

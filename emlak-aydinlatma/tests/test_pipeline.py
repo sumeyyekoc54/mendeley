@@ -171,3 +171,37 @@ def test_look_strength_zero_is_identity_on_lit() -> None:
     assert lit.lit_bgr is not None
     out = apply_look(lit.lit_bgr, LookProfile.IPHONE_VIBRANT, strength=0.0)
     assert np.array_equal(out, lit.lit_bgr)
+
+
+def _textured_interior(h: int = 240, w: int = 320) -> np.ndarray:
+    """Midtone-rich synthetic with gradients/noise so look tonal ops are measurable."""
+    img = _dark_room_with_window(h, w)
+    yy, xx = np.mgrid[0:h, 0:w]
+    # Soft wall gradient + fine texture
+    grad = (30 + 50 * (xx / w) + 25 * (yy / h)).astype(np.float32)
+    rng = np.random.default_rng(0)
+    texture = rng.normal(0, 6.0, size=(h, w)).astype(np.float32)
+    base = img.astype(np.float32)
+    for c in range(3):
+        base[:, :, c] = np.clip(base[:, :, c] * 0.45 + grad + texture, 0, 255)
+    # Bright near-neutral ceiling band
+    base[: int(h * 0.18), :, :] = np.clip(base[: int(h * 0.18), :, :] * 0.3 + 200, 0, 255)
+    return base.astype(np.uint8)
+
+
+def test_iphone_hdr_strength_50_visible_vs_lit() -> None:
+    """Strength 50 must produce a clear (medium+) difference vs lighting-only."""
+    img = _textured_interior()
+    r = process_bgr(
+        img,
+        EnhanceSettings(
+            mode=Mode.OTOMATIK,
+            look=LookProfile.IPHONE_NATURAL_HDR,
+            look_strength=50.0,
+        ),
+    )
+    assert r.lit_bgr is not None
+    assert r.look_metrics is not None
+    assert r.look_metrics.mean_abs_delta_vs_lit >= 4.0
+    assert r.look_metrics.effect_band in {"medium", "high"}
+    assert not np.array_equal(r.enhanced_bgr, r.lit_bgr)

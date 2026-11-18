@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageTk
 
 from .io_exif import default_output_dir, heif_available
-from .looks import LOOK_LABELS_TR, LookProfile, apply_all_looks
+from .looks import LOOK_LABELS_TR, LookProfile, apply_look
 from .pipeline import EnhanceResult, EnhanceSettings, Mode, process_file, save_result
 
 
@@ -47,7 +47,6 @@ class PhotoSlot:
         self.path = path
         self.settings = EnhanceSettings()
         self.result: EnhanceResult | None = None
-        self.look_previews: dict[LookProfile, np.ndarray] | None = None
 
 
 class App(tk.Tk):
@@ -224,7 +223,7 @@ class App(tk.Tk):
 
         ttk.Label(
             right,
-            text="Üçlü look: Natural | iPhone Natural HDR | iPhone Vibrant",
+            text="Üçlü: Orijinal | Sadece Aydınlatma | iPhone Natural HDR",
             font=("", 10, "bold"),
         ).pack(anchor=tk.W, pady=(4, 0))
         self.canvas_triple = tk.Label(right, background="#0a0a0a", text="Üçlü önizleme")
@@ -314,20 +313,16 @@ class App(tk.Tk):
         try:
             result = process_file(slot.path, settings=slot.settings)
             slot.result = result
-            # Triple looks from lit base (same strength)
-            lit = result.lit_bgr if result.lit_bgr is not None else result.enhanced_bgr
-            slot.look_previews = apply_all_looks(
-                lit,
-                strength=slot.settings.look_strength,
-                analysis=result.analysis,
-                source_bgr=result.original_bgr,
-            )
             self._show_result(slot)
             look_name = LOOK_LABELS_TR.get(slot.settings.look, slot.settings.look.value)
+            band = (
+                result.look_metrics.effect_band if result.look_metrics else "?"
+            )
             self._set_status(
                 f"Tamam: {slot.path.name} | "
                 f"exp={result.applied['exposure']:.2f} "
-                f"shadow={result.applied['shadow']:.2f} | look={look_name}"
+                f"shadow={result.applied['shadow']:.2f} | look={look_name} "
+                f"band={band}"
             )
         except Exception as exc:
             messagebox.showerror("Hata", str(exc))
@@ -365,6 +360,9 @@ class App(tk.Tk):
             f"Look: {LOOK_LABELS_TR.get(result.settings.look, result.settings.look.value)} "
             f"(güç={result.settings.look_strength:.0f})"
         )
+        if result.look_metrics is not None:
+            lines.append("--- LOOK DEBUG ---")
+            lines.extend(result.look_metrics.as_lines())
         q = result.quality
         if q.needs_manual_review:
             lines.append("--- UYARI / MANUEL KONTROL ---")
@@ -381,18 +379,26 @@ class App(tk.Tk):
             )
 
     def _show_triple(self, slot: PhotoSlot) -> None:
-        if not slot.look_previews:
+        result = slot.result
+        if result is None or result.lit_bgr is None:
             return
-        panels = []
-        order = (
-            (LookProfile.NATURAL, "Natural"),
-            (LookProfile.IPHONE_NATURAL_HDR, "iPhone Natural HDR"),
-            (LookProfile.IPHONE_VIBRANT, "iPhone Vibrant"),
+        lit = result.lit_bgr
+        hdr = apply_look(
+            lit,
+            LookProfile.IPHONE_NATURAL_HDR,
+            slot.settings.look_strength,
+            analysis=result.analysis,
+            source_bgr=result.original_bgr,
         )
-        for key, title in order:
-            img = _fit(_bgr_to_pil(slot.look_previews[key]), max_side=420)
-            panels.append(_label_strip(img, title))
-        # Match heights
+        order = (
+            (result.original_bgr, "Orijinal"),
+            (lit, "Sadece Aydınlatma"),
+            (hdr, "iPhone Natural HDR"),
+        )
+        panels = [
+            _label_strip(_fit(_bgr_to_pil(bgr), max_side=420), title)
+            for bgr, title in order
+        ]
         h = min(p.height for p in panels)
         panels = [
             p.crop((0, 0, p.width, h))
