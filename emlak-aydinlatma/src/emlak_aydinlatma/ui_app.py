@@ -8,14 +8,15 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 import numpy as np
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 
 from .io_exif import default_output_dir, heif_available
+from .looks import LOOK_LABELS_TR, LookProfile, apply_all_looks
 from .pipeline import EnhanceResult, EnhanceSettings, Mode, process_file, save_result
 
 
 MAX_PHOTOS = 3
-PREVIEW_MAX = 720
+PREVIEW_MAX = 640
 
 
 def _bgr_to_pil(bgr: np.ndarray) -> Image.Image:
@@ -31,25 +32,37 @@ def _fit(img: Image.Image, max_side: int = PREVIEW_MAX) -> Image.Image:
     return img.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
 
 
+def _label_strip(img: Image.Image, text: str) -> Image.Image:
+    """Add a small caption bar above the image."""
+    bar_h = 22
+    out = Image.new("RGB", (img.width, img.height + bar_h), (32, 32, 32))
+    out.paste(img, (0, bar_h))
+    draw = ImageDraw.Draw(out)
+    draw.text((6, 4), text, fill=(235, 235, 235))
+    return out
+
+
 class PhotoSlot:
     def __init__(self, path: Path):
         self.path = path
         self.settings = EnhanceSettings()
         self.result: EnhanceResult | None = None
+        self.look_previews: dict[LookProfile, np.ndarray] | None = None
 
 
 class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Emlak Fotoğraf Aydınlatma")
-        self.geometry("1100x720")
-        self.minsize(900, 600)
+        self.geometry("1180x780")
+        self.minsize(960, 640)
 
         self.slots: list[PhotoSlot] = []
         self.active_index = 0
         self._photo_left: ImageTk.PhotoImage | None = None
         self._photo_right: ImageTk.PhotoImage | None = None
         self._photo_blend: ImageTk.PhotoImage | None = None
+        self._photo_triple: ImageTk.PhotoImage | None = None
         self._preview_orig: Image.Image | None = None
         self._preview_edit: Image.Image | None = None
 
@@ -85,12 +98,12 @@ class App(tk.Tk):
         body.add(right, weight=3)
 
         ttk.Label(left, text="Fotoğraflar", font=("", 11, "bold")).pack(anchor=tk.W)
-        self.listbox = tk.Listbox(left, height=8, exportselection=False)
+        self.listbox = tk.Listbox(left, height=6, exportselection=False)
         self.listbox.pack(fill=tk.X, pady=4)
         self.listbox.bind("<<ListboxSelect>>", self._on_select)
 
-        ttk.Separator(left, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
-        ttk.Label(left, text="Bu fotoğraf ayarları", font=("", 10, "bold")).pack(
+        ttk.Separator(left, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+        ttk.Label(left, text="Doğal Aydınlatma", font=("", 10, "bold")).pack(
             anchor=tk.W
         )
 
@@ -103,10 +116,14 @@ class App(tk.Tk):
         ]
         for label, val in modes:
             ttk.Radiobutton(
-                left, text=label, value=val, variable=self.mode_var, command=self._sync_settings
+                left,
+                text=label,
+                value=val,
+                variable=self.mode_var,
+                command=self._sync_settings,
             ).pack(anchor=tk.W)
 
-        ttk.Label(left, text="Şiddet").pack(anchor=tk.W, pady=(8, 0))
+        ttk.Label(left, text="Aydınlatma şiddeti").pack(anchor=tk.W, pady=(6, 0))
         self.intensity_var = tk.DoubleVar(value=1.0)
         ttk.Scale(
             left,
@@ -122,7 +139,7 @@ class App(tk.Tk):
             text="Pencere / parlak alan koruması",
             variable=self.win_var,
             command=self._sync_settings,
-        ).pack(anchor=tk.W, pady=4)
+        ).pack(anchor=tk.W, pady=2)
 
         self.wb_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -132,8 +149,52 @@ class App(tk.Tk):
             command=self._sync_settings,
         ).pack(anchor=tk.W)
 
-        ttk.Separator(left, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
-        self.warn_text = tk.Text(left, height=10, wrap=tk.WORD, state=tk.DISABLED)
+        ttk.Separator(left, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+        ttk.Label(
+            left, text="iPhone Tarzı – Natural HDR", font=("", 10, "bold")
+        ).pack(anchor=tk.W)
+        ttk.Label(
+            left,
+            text="(Look katmanı; Doğal Aydınlatma korunur)",
+            font=("", 8),
+        ).pack(anchor=tk.W)
+
+        self.look_var = tk.StringVar(value=LookProfile.NONE.value)
+        looks = [
+            (LOOK_LABELS_TR[LookProfile.NONE], LookProfile.NONE.value),
+            (LOOK_LABELS_TR[LookProfile.NATURAL], LookProfile.NATURAL.value),
+            (
+                LOOK_LABELS_TR[LookProfile.IPHONE_NATURAL_HDR],
+                LookProfile.IPHONE_NATURAL_HDR.value,
+            ),
+            (
+                LOOK_LABELS_TR[LookProfile.IPHONE_VIBRANT],
+                LookProfile.IPHONE_VIBRANT.value,
+            ),
+        ]
+        for label, val in looks:
+            ttk.Radiobutton(
+                left,
+                text=label,
+                value=val,
+                variable=self.look_var,
+                command=self._sync_settings,
+            ).pack(anchor=tk.W)
+
+        ttk.Label(left, text="Look gücü (0–100, varsayılan 50)").pack(
+            anchor=tk.W, pady=(6, 0)
+        )
+        self.look_strength_var = tk.DoubleVar(value=50.0)
+        ttk.Scale(
+            left,
+            from_=0.0,
+            to=100.0,
+            variable=self.look_strength_var,
+            command=lambda _e: self._sync_settings(),
+        ).pack(fill=tk.X)
+
+        ttk.Separator(left, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+        self.warn_text = tk.Text(left, height=8, wrap=tk.WORD, state=tk.DISABLED)
         self.warn_text.pack(fill=tk.BOTH, expand=True)
 
         # Preview area
@@ -147,9 +208,9 @@ class App(tk.Tk):
         self.canvas_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
         self.canvas_right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
 
-        ttk.Label(right, text="Karşılaştırma kaydırıcısı (orijinal ← → düzenlenmiş)").pack(
-            anchor=tk.W, pady=(6, 0)
-        )
+        ttk.Label(
+            right, text="Karşılaştırma kaydırıcısı (orijinal ← → düzenlenmiş)"
+        ).pack(anchor=tk.W, pady=(6, 0))
         self.compare_var = tk.DoubleVar(value=0.5)
         ttk.Scale(
             right,
@@ -160,6 +221,14 @@ class App(tk.Tk):
         ).pack(fill=tk.X)
         self.canvas_compare = tk.Label(right, background="#111", text="Karşılaştırma")
         self.canvas_compare.pack(fill=tk.X, pady=4)
+
+        ttk.Label(
+            right,
+            text="Üçlü look: Natural | iPhone Natural HDR | iPhone Vibrant",
+            font=("", 10, "bold"),
+        ).pack(anchor=tk.W, pady=(4, 0))
+        self.canvas_triple = tk.Label(right, background="#0a0a0a", text="Üçlü önizleme")
+        self.canvas_triple.pack(fill=tk.X, pady=4)
 
         self.status = ttk.Label(self, text="", relief=tk.SUNKEN, anchor=tk.W)
         self.status.pack(fill=tk.X, side=tk.BOTTOM)
@@ -208,7 +277,7 @@ class App(tk.Tk):
         if slot.result is None:
             self._process_active()
         else:
-            self._show_result(slot.result)
+            self._show_result(slot)
 
     def _load_settings_to_ui(self) -> None:
         if not self.slots:
@@ -218,6 +287,8 @@ class App(tk.Tk):
         self.intensity_var.set(s.intensity)
         self.win_var.set(s.window_protection)
         self.wb_var.set(s.white_balance)
+        self.look_var.set(s.look.value)
+        self.look_strength_var.set(s.look_strength)
 
     def _sync_settings(self) -> None:
         if not self.slots:
@@ -228,6 +299,8 @@ class App(tk.Tk):
             intensity=float(self.intensity_var.get()),
             window_protection=bool(self.win_var.get()),
             white_balance=bool(self.wb_var.get()),
+            look=LookProfile(self.look_var.get()),
+            look_strength=float(self.look_strength_var.get()),
         )
 
     def _process_active(self) -> None:
@@ -241,20 +314,31 @@ class App(tk.Tk):
         try:
             result = process_file(slot.path, settings=slot.settings)
             slot.result = result
-            self._show_result(result)
+            # Triple looks from lit base (same strength)
+            lit = result.lit_bgr if result.lit_bgr is not None else result.enhanced_bgr
+            slot.look_previews = apply_all_looks(
+                lit,
+                strength=slot.settings.look_strength,
+                analysis=result.analysis,
+                source_bgr=result.original_bgr,
+            )
+            self._show_result(slot)
+            look_name = LOOK_LABELS_TR.get(slot.settings.look, slot.settings.look.value)
             self._set_status(
                 f"Tamam: {slot.path.name} | "
                 f"exp={result.applied['exposure']:.2f} "
-                f"shadow={result.applied['shadow']:.2f}"
+                f"shadow={result.applied['shadow']:.2f} | look={look_name}"
             )
         except Exception as exc:
             messagebox.showerror("Hata", str(exc))
             self._set_status("Hata oluştu.")
 
-    def _show_result(self, result: EnhanceResult) -> None:
+    def _show_result(self, slot: PhotoSlot) -> None:
+        result = slot.result
+        if result is None:
+            return
         orig = _fit(_bgr_to_pil(result.original_bgr))
         edit = _fit(_bgr_to_pil(result.enhanced_bgr))
-        # Match sizes
         if orig.size != edit.size:
             edit = edit.resize(orig.size, Image.Resampling.LANCZOS)
         self._preview_orig = orig
@@ -264,6 +348,7 @@ class App(tk.Tk):
         self.canvas_left.config(image=self._photo_left, text="")
         self.canvas_right.config(image=self._photo_right, text="")
         self._update_compare()
+        self._show_triple(slot)
 
         lines: list[str] = []
         a = result.analysis
@@ -275,6 +360,10 @@ class App(tk.Tk):
         lines.append(
             f"Uygulanan: exposure={result.applied['exposure']:.2f} stop, "
             f"shadow={result.applied['shadow']:.2f}, local={result.applied['local']:.2f}"
+        )
+        lines.append(
+            f"Look: {LOOK_LABELS_TR.get(result.settings.look, result.settings.look.value)} "
+            f"(güç={result.settings.look_strength:.0f})"
         )
         q = result.quality
         if q.needs_manual_review:
@@ -291,6 +380,37 @@ class App(tk.Tk):
                 "\n".join(q.warnings[:4]) or "Kalite uyarıları var.",
             )
 
+    def _show_triple(self, slot: PhotoSlot) -> None:
+        if not slot.look_previews:
+            return
+        panels = []
+        order = (
+            (LookProfile.NATURAL, "Natural"),
+            (LookProfile.IPHONE_NATURAL_HDR, "iPhone Natural HDR"),
+            (LookProfile.IPHONE_VIBRANT, "iPhone Vibrant"),
+        )
+        for key, title in order:
+            img = _fit(_bgr_to_pil(slot.look_previews[key]), max_side=420)
+            panels.append(_label_strip(img, title))
+        # Match heights
+        h = min(p.height for p in panels)
+        panels = [
+            p.crop((0, 0, p.width, h))
+            if p.height == h
+            else p.resize((int(p.width * h / p.height), h), Image.Resampling.LANCZOS)
+            for p in panels
+        ]
+        gap = Image.new("RGB", (4, h), (40, 40, 40))
+        triple = panels[0]
+        for p in panels[1:]:
+            row = Image.new("RGB", (triple.width + 4 + p.width, h), (20, 20, 20))
+            row.paste(triple, (0, 0))
+            row.paste(gap, (triple.width, 0))
+            row.paste(p, (triple.width + 4, 0))
+            triple = row
+        self._photo_triple = ImageTk.PhotoImage(triple)
+        self.canvas_triple.config(image=self._photo_triple, text="")
+
     def _update_compare(self, _evt: Any = None) -> None:
         if self._preview_orig is None or self._preview_edit is None:
             return
@@ -300,7 +420,6 @@ class App(tk.Tk):
         blended = self._preview_orig.copy()
         right = self._preview_edit.crop((split, 0, w, h))
         blended.paste(right, (split, 0))
-        # Split line
         if 0 < split < w:
             for y in range(h):
                 blended.putpixel((split, y), (255, 220, 40))

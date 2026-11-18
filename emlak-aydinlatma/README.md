@@ -45,7 +45,7 @@ pip install pillow-heif
 
 Arayüz HEIC desteği varsa durum çubuğunda “HEIC: hazır” gösterir.
 
-## Modlar
+## Modlar (Doğal Aydınlatma)
 
 | Mod | Açıklama |
 |-----|----------|
@@ -57,6 +57,19 @@ Arayüz HEIC desteği varsa durum çubuğunda “HEIC: hazır” gösterir.
 
 **Pencere koruması** (varsayılan açık): parlak bölgelerde yumuşak maske ile yanmayı sınırlar.  
 **Beyaz dengesi**: isteğe bağlı, hafif gri-dünya; varsayılan kapalı (duvar/mobilya renkleri korunur).
+
+## iPhone Tarzı – Natural HDR (look katmanı)
+
+Doğal Aydınlatma’dan **sonra** isteğe bağlı profil (varsayılan kapalı):
+
+| Look | Açıklama |
+|------|----------|
+| Natural | Hafif polish |
+| iPhone Natural HDR | Temiz beyazlar, kontrollü parlaklık, dengeli kontrast |
+| iPhone Vibrant | Biraz daha renk/kontrast; hâlâ gerçekçi |
+
+Look gücü 0–100 (varsayılan 50). CLI: `--look iphone_natural_hdr --look-strength 50`.  
+Apple algoritması klonu değildir — yalnızca ton/renk hissi.
 
 ## Bilinen sınırlar (dürüst)
 

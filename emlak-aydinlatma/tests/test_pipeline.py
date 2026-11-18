@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from emlak_aydinlatma.analysis import analyze_image, luminance_rec709  # noqa: E402
 from emlak_aydinlatma.enhance import enhance_lighting  # noqa: E402
 from emlak_aydinlatma.io_exif import output_path_for, save_image  # noqa: E402
+from emlak_aydinlatma.looks import LookProfile, apply_look  # noqa: E402
 from emlak_aydinlatma.pipeline import (  # noqa: E402
     EnhanceSettings,
     Mode,
@@ -140,3 +141,33 @@ def test_enhance_lighting_no_nan() -> None:
         window_protection=True,
     )
     assert np.isfinite(out).all()
+
+
+def test_default_look_matches_natural_lighting_only() -> None:
+    """Look=NONE must leave Doğal Aydınlatma path unchanged."""
+    img = _dark_room_with_window()
+    plain = process_bgr(img, EnhanceSettings(mode=Mode.OTOMATIK, look=LookProfile.NONE))
+    assert plain.lit_bgr is not None
+    assert np.array_equal(plain.enhanced_bgr, plain.lit_bgr)
+
+
+def test_look_postpass_preserves_geometry() -> None:
+    img = _dark_room_with_window()
+    r = process_bgr(
+        img,
+        EnhanceSettings(
+            mode=Mode.OTOMATIK,
+            look=LookProfile.IPHONE_NATURAL_HDR,
+            look_strength=50.0,
+        ),
+    )
+    assert r.enhanced_bgr.shape == img.shape
+    assert np.isfinite(r.enhanced_bgr).all()
+
+
+def test_look_strength_zero_is_identity_on_lit() -> None:
+    img = _dark_room_with_window()
+    lit = process_bgr(img, EnhanceSettings(look=LookProfile.NONE))
+    assert lit.lit_bgr is not None
+    out = apply_look(lit.lit_bgr, LookProfile.IPHONE_VIBRANT, strength=0.0)
+    assert np.array_equal(out, lit.lit_bgr)

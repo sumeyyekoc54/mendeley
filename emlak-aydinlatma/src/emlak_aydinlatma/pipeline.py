@@ -12,6 +12,7 @@ import numpy as np
 from .analysis import ImageAnalysis, analyze_image
 from .enhance import enhance_lighting
 from .io_exif import load_image, output_path_for, save_image
+from .looks import LookProfile, apply_look
 from .quality import QualityReport, check_quality
 
 
@@ -38,6 +39,9 @@ class EnhanceSettings:
     window_protection: bool = True
     white_balance: bool = False
     apply_local: bool | None = None  # None → mode decides
+    # Look layer (post-pass). Default NONE keeps Doğal Aydınlatma unchanged.
+    look: LookProfile = LookProfile.NONE
+    look_strength: float = 50.0  # 0..100
 
 
 @dataclass
@@ -49,6 +53,7 @@ class EnhanceResult:
     settings: EnhanceSettings
     applied: dict[str, float]
     meta: dict[str, Any]
+    lit_bgr: np.ndarray | None = None  # Doğal aydınlatma çıktısı (look öncesi)
 
 
 def resolve_strengths(
@@ -87,11 +92,11 @@ def process_bgr(
     settings: EnhanceSettings | None = None,
     meta: dict[str, Any] | None = None,
 ) -> EnhanceResult:
-    """Analyze + enhance an in-memory BGR image."""
+    """Analyze + Doğal Aydınlatma, then optional look post-pass."""
     settings = settings or EnhanceSettings()
     analysis = analyze_image(bgr)
     strengths = resolve_strengths(analysis, settings)
-    enhanced = enhance_lighting(
+    lit = enhance_lighting(
         bgr,
         analysis,
         exposure_stops=strengths["exposure"],
@@ -100,8 +105,19 @@ def process_bgr(
         window_protection=settings.window_protection,
         white_balance=settings.white_balance,
     )
-    # Geometry must match
+    assert lit.shape == bgr.shape
+
+    enhanced = apply_look(
+        lit,
+        settings.look,
+        settings.look_strength,
+        analysis=analysis,
+        source_bgr=bgr,
+    )
     assert enhanced.shape == bgr.shape
+
+    applied = dict(strengths)
+    applied["look_strength"] = float(settings.look_strength)
     quality = check_quality(bgr, enhanced)
     return EnhanceResult(
         original_bgr=bgr,
@@ -109,8 +125,9 @@ def process_bgr(
         analysis=analysis,
         quality=quality,
         settings=settings,
-        applied=strengths,
+        applied=applied,
         meta=meta or {},
+        lit_bgr=lit,
     )
 
 

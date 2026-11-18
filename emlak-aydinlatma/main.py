@@ -18,6 +18,7 @@ _SRC = Path(__file__).resolve().parent / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from emlak_aydinlatma.looks import LookProfile  # noqa: E402
 from emlak_aydinlatma.pipeline import (  # noqa: E402
     EnhanceSettings,
     Mode,
@@ -52,6 +53,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--intensity", type=float, default=1.0)
     p.add_argument("--no-window-protect", action="store_true")
     p.add_argument("--wb", action="store_true", help="Hafif beyaz dengesi")
+    p.add_argument(
+        "--look",
+        choices=[m.value for m in LookProfile],
+        default=LookProfile.NONE.value,
+        help="Look katmanı (varsayılan: none = yalnızca Doğal Aydınlatma)",
+    )
+    p.add_argument(
+        "--look-strength",
+        type=float,
+        default=50.0,
+        help="Look gücü 0–100 (varsayılan 50)",
+    )
     return p.parse_args(argv)
 
 
@@ -70,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
         intensity=args.intensity,
         window_protection=not args.no_window_protect,
         white_balance=args.wb,
+        look=LookProfile(args.look),
+        look_strength=args.look_strength,
     )
     out = Path(args.out)
     results = process_batch(args.paths, settings=settings, out_dir=out, save=True)
