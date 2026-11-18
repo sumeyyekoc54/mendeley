@@ -6,3 +6,4 @@ duzenlenmis_fotograflar/
 *.egg-info/
 dist/
 build/
+*.spec.bak

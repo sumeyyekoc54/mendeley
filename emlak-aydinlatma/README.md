@@ -71,12 +71,50 @@ Doğal Aydınlatma’dan **sonra** isteğe bağlı profil (varsayılan kapalı):
 Look gücü 0–100 (varsayılan 50). CLI: `--look iphone_natural_hdr --look-strength 50`.  
 Apple algoritması klonu değildir — yalnızca ton/renk hissi.
 
+## Windows .exe derleme (PyInstaller)
+
+> **Önemli:** Windows `.exe` **yalnızca Windows bilgisayarda** (veya GitHub Actions `windows-latest` runner’da) üretilir. Linux bulut ortamı çapraz derleme ile güvenilir Windows exe vermez.
+
+### Derleme (PowerShell)
+
+```powershell
+cd emlak-aydinlatma
+.\scripts\build_windows.ps1
+```
+
+Çıktı klasörü:
+
+```text
+dist\EmlakAydinlatma\EmlakAydinlatma.exe
+```
+
+**Tüm `dist\EmlakAydinlatma\` klasörünü** birlikte kopyalayın (yanındaki DLL’ler gerekli; tek başına `.exe` yetmez — one-folder paket).
+
+### Exe çalıştırma
+
+1. `EmlakAydinlatma.exe` dosyasına çift tıklayın.
+2. Windows SmartScreen / Defender uyarısı çıkarsa: **Daha fazla bilgi** → **Yine de çalıştır**.
+3. Arayüz açılır; fotoğraf seçip işleyin / kaydedin.
+
+CLI için hâlâ `python main.py --cli ...` kullanın (paketli exe penceresiz GUI odaklıdır).
+
+### GitHub Actions
+
+`.github/workflows/windows-exe.yml` — `windows-latest` üzerinde derler ve `EmlakAydinlatma-windows` artifact’ını yükler. Actions sekmesinden workflow’u çalıştırıp artifact’ı indirebilirsiniz.
+
+Import / freeze kontrolü (Windows veya Linux çekirdek paketleri):
+
+```bat
+set PYTHONPATH=src
+python scripts\verify_freeze_imports.py
+```
+
 ## Bilinen sınırlar (dürüst)
 
 - Kaynakta yanmış (clip) pencereler / gökyüzü **geri getirilemez**; koruma yalnızca daha fazla yanmayı azaltır.
 - Aşırı ISO gürültülü gölgeler güçlendirilince gürültü artabilir — Hafif mod kullanın.
 - Bu MVP “profesyonel stüdyo kalitesi” iddiasında değildir; doğal, kontrollü aydınlatma iyileştirmesi sunar.
-- `.exe` paketleme henüz yok (onay sonrası düşünülebilir).
+- Paketli `.exe` imzasızdır; Windows uyarı verebilir. HEIC için `pillow-heif` exe’ye dahil edilmez (opsiyonel).
 
 ## Proje yapısı
 
@@ -84,12 +122,17 @@ Apple algoritması klonu değildir — yalnızca ton/renk hissi.
 emlak-aydinlatma/
   main.py
   requirements.txt
+  requirements-build.txt   # pyinstaller
+  emlak_aydinlatma.spec    # PyInstaller one-folder
+  scripts/build_windows.ps1
+  scripts/verify_freeze_imports.py
   src/emlak_aydinlatma/
     analysis.py   # luminans / histogram analizi
     enhance.py    # pozlama, gölge, highlight, WB
     quality.py    # ölçülebilir kalite kapıları
     io_exif.py    # EXIF yön + kayıt
     pipeline.py   # modlar + orkestrasyon
+    looks.py      # iPhone tarzı look katmanı
     ui_app.py     # Tkinter
   tests/
 ```

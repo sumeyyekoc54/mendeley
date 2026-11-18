@@ -1,0 +1,2 @@
+# Yalnızca Windows .exe derlemesi için (runtime requirements.txt'ye ek değil)
+pyinstaller>=6.3.0
