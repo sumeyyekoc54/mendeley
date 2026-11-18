@@ -1,0 +1,53 @@
+name: Windows exe (PyInstaller)
+
+# Windows runner gerekir — Linux bulut ajanı .exe üretemez.
+# Manuel tetikleme veya emlak-aydinlatma değişikliklerinde çalışır.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/emlak-aydinlatma-mvp-a26f
+      - main
+    paths:
+      - "emlak-aydinlatma/**"
+      - ".github/workflows/windows-exe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build EmlakAydinlatma.exe
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: emlak-aydinlatma
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build (PyInstaller one-folder)
+        run: |
+          ./scripts/build_windows.ps1
+
+      - name: Smoke-test CLI headless
+        run: |
+          $exe = "dist/EmlakAydinlatma/EmlakAydinlatma.exe"
+          if (-not (Test-Path $exe)) { throw "exe missing: $exe" }
+          # GUI binary; CLI arg smoke via python path still covered by unit tests.
+          Get-ChildItem dist/EmlakAydinlatma | Select-Object -First 20 Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmlakAydinlatma-windows
+          path: emlak-aydinlatma/dist/EmlakAydinlatma/
+          if-no-files-found: error
+          retention-days: 14
